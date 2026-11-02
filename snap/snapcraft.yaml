@@ -1,0 +1,159 @@
+name: cline
+base: core26
+version: '3.0.74'
+title: Cline
+icon: snap/gui/cline.png
+summary: Autonomous coding agent for your terminal
+description: |
+  Cline is an AI coding agent. It reads your project, edits files and runs
+  shell commands to complete a task, either in an interactive terminal UI
+  or headless for scripts and CI. It works with Cline accounts, ChatGPT
+  subscriptions and API keys for Anthropic, OpenAI, Google Gemini,
+  OpenRouter, AWS Bedrock, GCP Vertex, Groq and any OpenAI-compatible
+  endpoint, and supports MCP servers, plan/act modes and checkpoints.
+
+  **Examples**
+
+     cline auth
+     cd ~/my-project
+     cline
+     cline "Explain what this repository does"
+     cline --auto-approve false "Fix the failing tests"
+     git diff | cline "Review these changes"
+
+  **Access**
+
+  The agent works on projects in your home folder (except hidden folders
+  directly under it). For /media and /mnt, run:
+
+     sudo snap connect cline:removable-media
+
+  Commands the agent runs stay inside the snap. They can use bash, the
+  core utilities, git, ripgrep, curl, jq, patch, file, tree, zip, unzip
+  and xz. Toolchains installed on your system, such as node, npm, python,
+  go, cargo, make or docker, are not available to the agent.
+
+  Settings, credentials and sessions are stored in
+  ~/snap/cline/common/cline. Updates come from the Snap Store.
+license: Apache-2.0
+grade: stable
+confinement: strict
+website: https://cline.bot
+source-code:
+  - https://github.com/cline/cline
+  - https://github.com/sidalit/cline-snap
+issues:
+  - https://github.com/cline/cline/issues
+  - https://github.com/sidalit/cline-snap/issues
+contact: https://github.com/sidalit/cline-snap/issues
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  cline:
+    command: bin/cline
+    plugs:
+      - home
+      - removable-media
+      - network
+      # The local hub daemon and dashboard listen on localhost.
+      - network-bind
+    environment:
+      # Keep state outside revision data so refreshes do not copy sessions.
+      CLINE_DIR: $SNAP_USER_COMMON/cline
+      # Updates come from the Snap Store.
+      CLINE_NO_AUTO_UPDATE: '1'
+      # The host login shell may not exist inside the snap.
+      SHELL: /bin/bash
+      GIT_EXEC_PATH: $SNAP/usr/lib/git-core
+      GIT_TEMPLATE_DIR: $SNAP/usr/share/git-core/templates
+      MAGIC: $SNAP/usr/lib/file/magic.mgc
+
+parts:
+  # The CLI is a Bun-compiled executable that embeds the Bun runtime, so
+  # Bun ships only inside it. Match the version upstream pins in package.json
+  # and its CLI release workflow.
+  bun:
+    plugin: nil
+    build-packages:
+      - curl
+      - unzip
+    override-build: |
+      version=1.4.2
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64) arch=x64 sum=36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913 ;;
+        arm64) arch=aarch64 sum=54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7 ;;
+        *) echo "unsupported architecture $CRAFT_ARCH_BUILD_FOR" >&2; exit 1 ;;
+      esac
+      zip="bun-linux-$arch.zip"
+      curl -fsSLo "$zip" "https://github.com/oven-sh/bun/releases/download/bun-v$version/$zip"
+      echo "$sum  $zip" | sha256sum -c -
+      unzip -q -o "$zip"
+      install -Dm755 "bun-linux-$arch/bun" "$CRAFT_PART_INSTALL/bin/bun"
+      curl -fsSLo bun-LICENSE.md \
+        "https://raw.githubusercontent.com/oven-sh/bun/bun-v$version/LICENSE.md"
+      install -Dm644 bun-LICENSE.md "$CRAFT_PART_INSTALL/share/doc/bun/LICENSE.md"
+    prime:
+      - share/doc/bun/LICENSE.md
+
+  # Build-time only: upstream's release workflow also sets up Node 24.
+  node:
+    plugin: nil
+    build-packages:
+      - curl
+      - xz-utils
+    override-build: |
+      version=24.22.2
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64) arch=x64 sum=48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75 ;;
+        arm64) arch=arm64 sum=eb187837a2230d4047161ac0be008584e16b46f726e9c9490ee35dc6b17d9ba8 ;;
+        *) echo "unsupported architecture $CRAFT_ARCH_BUILD_FOR" >&2; exit 1 ;;
+      esac
+      tarball="node-v$version-linux-$arch.tar.xz"
+      curl -fsSLo "$tarball" "https://nodejs.org/dist/v$version/$tarball"
+      echo "$sum  $tarball" | sha256sum -c -
+      tar -xJf "$tarball" -C "$CRAFT_PART_INSTALL" --strip-components=1 --no-same-owner
+    prime:
+      - -*
+
+  cline:
+    after: [bun, node]
+    plugin: nil
+    source: https://github.com/cline/cline.git
+    source-tag: cli-v$SNAPCRAFT_PROJECT_VERSION
+    source-depth: 1
+    build-packages:
+      - g++
+      - make
+      - python3
+    stage-packages:
+      - curl
+      - file
+      - git
+      - jq
+      - patch
+      - ripgrep
+      - tree
+      - unzip
+      - xz-utils
+      - zip
+    override-build: |
+      export PATH="$CRAFT_STAGE/bin:$PATH"
+      # Same steps as upstream's CLI release workflow, for the build architecture only.
+      bun install --frozen-lockfile
+      bun run build:sdk
+      (cd apps/cli && bun script/build.ts --single --skip-sdk-build)
+      install -Dm755 "apps/cli/dist/cli-linux-$(node -p process.arch)/bin/cline" \
+        "$CRAFT_PART_INSTALL/bin/cline"
+
+      install -Dm644 LICENSE "$CRAFT_PART_INSTALL/share/doc/cline/LICENSE"
+      # Bundled dependencies still need their license and notice files. Bun
+      # installs every workspace package under node_modules/.bun, so this
+      # covers a superset of what the CLI bundles.
+      notices="$CRAFT_PART_INSTALL/share/doc/cline/dependencies"
+      mkdir -p "$notices"
+      (cd node_modules/.bun && find . -mindepth 4 -maxdepth 5 -type f \
+        \( -iname 'license*' -o -iname 'licence*' -o -iname 'copying*' -o -iname 'notice*' \) \
+        -path '*/node_modules/*' -exec cp --parents -t "$notices" {} +)
