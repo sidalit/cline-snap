@@ -55,26 +55,20 @@ apps:
   cline:
     command: bin/cline
     plugs:
+      - desktop
       - home
       - removable-media
       - network
-      # The local hub daemon and dashboard listen on localhost.
       - network-bind
     environment:
-      # Keep state outside revision data so refreshes do not copy sessions.
       CLINE_DIR: $SNAP_USER_COMMON/cline
-      # Updates come from the Snap Store.
       CLINE_NO_AUTO_UPDATE: '1'
-      # The host login shell may not exist inside the snap.
       SHELL: /bin/bash
       GIT_EXEC_PATH: $SNAP/usr/lib/git-core
       GIT_TEMPLATE_DIR: $SNAP/usr/share/git-core/templates
       MAGIC: $SNAP/usr/lib/file/magic.mgc
 
 parts:
-  # The CLI is a Bun-compiled executable that embeds the Bun runtime, so
-  # Bun ships only inside it. Match the version upstream pins in package.json
-  # and its CLI release workflow.
   bun:
     plugin: nil
     build-packages:
@@ -98,7 +92,6 @@ parts:
     prime:
       - share/doc/bun/LICENSE.md
 
-  # Build-time only: upstream's release workflow also sets up Node 24.
   node:
     plugin: nil
     build-packages:
@@ -141,7 +134,6 @@ parts:
       - zip
     override-build: |
       export PATH="$CRAFT_STAGE/bin:$PATH"
-      # Same steps as upstream's CLI release workflow, for the build architecture only.
       bun install --frozen-lockfile
       bun run build:sdk
       (cd apps/cli && bun script/build.ts --single --skip-sdk-build)
@@ -149,9 +141,7 @@ parts:
         "$CRAFT_PART_INSTALL/bin/cline"
 
       install -Dm644 LICENSE "$CRAFT_PART_INSTALL/share/doc/cline/LICENSE"
-      # Bundled dependencies still need their license and notice files. Bun
-      # installs every workspace package under node_modules/.bun, so this
-      # covers a superset of what the CLI bundles.
+      # Preserve notices for dependencies bundled into the executable.
       notices="$CRAFT_PART_INSTALL/share/doc/cline/dependencies"
       mkdir -p "$notices"
       (cd node_modules/.bun && find . -mindepth 4 -maxdepth 5 -type f \
