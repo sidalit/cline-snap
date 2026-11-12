@@ -67,6 +67,8 @@ apps:
       GIT_EXEC_PATH: $SNAP/usr/lib/git-core
       GIT_TEMPLATE_DIR: $SNAP/usr/share/git-core/templates
       MAGIC: $SNAP/usr/lib/file/magic.mgc
+      XDG_CONFIG_HOME: $SNAP_USER_DATA/.config
+      XDG_DATA_HOME: $SNAP_USER_DATA/.local/share
 
 parts:
   bun:
